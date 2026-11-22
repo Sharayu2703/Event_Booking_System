@@ -7,7 +7,7 @@ The system supports two types of users:
 - **Event Organizers:** Create, manage, and update events.
 - **Customers:** Browse events and book tickets.
 
-It includes JWT-based authentication, role-based authorization, booking idempotency, asynchronous background jobs, and real email notifications.
+It includes JWT-based authentication, role-based authorization, booking idempotency, and asynchronous email jobs. SMTP delivery requires valid provider settings and has not been verified in this repository.
 
 ---
 
@@ -96,8 +96,8 @@ The application also supports idempotent booking requests to reduce duplicate bo
 ### Email Notifications
 
 - Nodemailer integration
-- Gmail SMTP configuration
-- Real email delivery
+- SMTP configuration through environment variables
+- Email delivery code (actual delivery is unverified)
 - Booking confirmation email
 - Event update notification email
 
@@ -116,7 +116,7 @@ The application also supports idempotent booking requests to reduce duplicate bo
 | Redis | Queue storage and job processing |
 | BullMQ | Background job management |
 | Nodemailer | Email sending |
-| Gmail SMTP | Email delivery |
+| SMTP provider | Email delivery |
 | Postman | API testing |
 | Docker | Local infrastructure |
 
@@ -153,7 +153,7 @@ The application follows a modular backend architecture.
                         |
                     NODEMAILER
                         |
-                    GMAIL SMTP
+                   CONFIGURED SMTP
                         |
                         |
                   CUSTOMER EMAIL
@@ -164,12 +164,12 @@ The application follows a modular backend architecture.
 1. The client sends HTTP requests to the Express API.
 2. Authentication middleware validates JWT tokens.
 3. Authorization middleware checks user roles.
-4. Controllers process incoming requests.
+4. Route handlers process incoming requests.
 5. Mongoose communicates with MongoDB.
-6. Successful booking or event update operations enqueue background jobs.
-7. Redis stores the queued jobs through BullMQ.
-8. The background worker processes the jobs.
-9. Nodemailer sends real email notifications using Gmail SMTP.
+6. A successful booking or event update writes a notification record to the MongoDB outbox.
+7. The API's polling dispatcher forwards pending records to BullMQ, which stores jobs in Redis.
+8. The separate background worker processes queued jobs.
+9. Nodemailer attempts to send email using the configured SMTP provider.
 
 This separation prevents email delivery from blocking the main API request.
 
@@ -177,37 +177,25 @@ This separation prevents email delivery from blocking the main API request.
 
 ## 5. Project Structure
 
-The backend follows a modular folder structure.
+This is the actual folder structure in the repository (generated dependency files are omitted).
 
 ```text
-event-booking-system/
-│
-├── src/
-│   ├── config/
-│   │   ├── env.js
-│   │   └── database.js
-│   │
-│   ├── controllers/
-│   │
-│   ├── middleware/
-│   │
-│   ├── models/
-│   │
-│   ├── routes/
-│   │
-│   ├── services/
-│   │   └── mailer.js
-│   │
-│   ├── workers/
-│   │   └── worker.js
-│   │
-│   └── ...
-│
-├── .env.example
-├── .gitignore
-├── docker-compose.yml
-├── package.json
-└── README.md
+src/
+├── app.js, server.js
+├── config/          # env.js, db.js, queue.js
+├── middleware/      # auth.js, errors.js
+├── models/          # User, Event, Booking, Outbox
+├── routes/          # auth.js, events.js, bookings.js
+├── services/        # mailer.js, outbox.js
+├── workers/         # worker.js
+└── types/           # Express request types
+tests/               # smoke and opt-in MongoDB integration tests
+scripts/             # syntax check and k6 booking test
+Dockerfile
+docker-compose.yml   # MongoDB and Redis only
+package.json
+README.md
+SUBMISSION_NOW.md
 ```
 
 The project uses separate modules for configuration, routing, data models, business logic, and background processing.
@@ -243,24 +231,24 @@ The application exposes REST APIs for authentication, event management, and book
 
 ### Authentication APIs
 
-- Customer registration
-- Organizer registration
-- User login
+- `POST /api/auth/register` — public customer registration.
+- `POST /api/auth/register-organizer` — organizer registration; requires `x-organizer-invite` matching `ORGANIZER_INVITE_SECRET`.
+- `POST /api/auth/login` — customer or organizer login; returns a JWT.
 
 ### Event APIs
 
-- Get all events
-- Search events
-- Get event details
-- Create an event
-- Update an event
-- Delete an event
+- `GET /api/events?page=1&limit=20&search=music` — browse and search upcoming published events.
+- `GET /api/events/:id` — event details.
+- `POST /api/events` — organizer creates an event.
+- `PATCH /api/events/:id` — owning organizer updates or cancels an event.
+- `DELETE /api/events/:id` — owning organizer deletes an event only if there are no confirmed bookings.
 
 ### Booking APIs
 
-- Create a booking
-- View booking details
-- View customer bookings
+- `POST /api/events/:id/bookings` — customer booking; requires `Idempotency-Key` (8–128 characters) and JSON such as `{ "quantity": 2 }`.
+- `GET /api/bookings/me` — customer lists their bookings.
+- `GET /api/bookings/:id` — booking owner or event-owning organizer reads a booking.
+- `GET /health` — API process health response.
 
 **Note:** Refer to the actual route files in `src/routes/` for the exact HTTP methods, endpoint paths, request bodies, and authorization requirements.
 
@@ -283,11 +271,11 @@ Workflow:
 1. Customer submits a booking request.
 2. The API validates the booking.
 3. Booking information is saved.
-4. A booking confirmation job is added to the queue.
-5. The background worker receives the job.
+4. The API writes a booking-confirmation record to the MongoDB outbox; its dispatcher later adds a queue job.
+5. The background worker receives the job from BullMQ/Redis.
 6. The worker processes the email task.
-7. Nodemailer sends a real confirmation email.
-8. The customer receives booking details.
+7. Nodemailer attempts delivery through the configured SMTP provider.
+8. The customer receives booking details if the provider accepts and delivers the message.
 
 The email includes:
 
@@ -306,12 +294,12 @@ Workflow:
 
 1. Organizer updates an event.
 2. The API saves the updated event information.
-3. The system identifies customers who booked that event.
-4. An event update notification job is queued.
+3. The system identifies customers with confirmed bookings and writes an outbox record.
+4. The dispatcher queues an event-update job through BullMQ/Redis.
 5. The background worker processes the notification.
-6. Customers receive event update emails.
+6. The worker attempts to email the eligible customers; delivery depends on SMTP acceptance and recipient-provider handling.
 
-This ensures customers are informed when an event they booked is updated.
+This queues an update notification for customers with confirmed bookings when an organizer changes an event.
 
 ### Why Background Jobs?
 
@@ -324,7 +312,7 @@ This ensures customers are informed when an event they booked is updated.
 
 ## 9. Email Notification System
 
-The application uses Nodemailer with Gmail SMTP to send real emails.
+The application uses Nodemailer with the SMTP provider configured through environment variables. Real delivery has not been verified as part of this repository audit.
 
 Email configuration is stored in environment variables.
 
@@ -507,7 +495,7 @@ The application uses environment variables for configuration.
 Typical configuration includes:
 
 ```env
-PORT=5000
+PORT=4000
 
 MONGODB_URI=your_mongodb_connection_string
 
@@ -518,10 +506,15 @@ REDIS_URL=your_redis_connection_string
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_SECURE=false
-SMTP_USER=your_gmail_address
-SMTP_PASS=your_gmail_app_password
+SMTP_USER=your_smtp_username
+SMTP_PASS=your_smtp_password
 
-MAIL_FROM=your_gmail_address
+MAIL_FROM=Event Booking <your_authorized_sender@example.com>
+ORGANIZER_INVITE_SECRET=your_separate_invitation_secret
+CLIENT_ORIGIN=http://localhost:5173
+JWT_EXPIRES_IN=1d
+RATE_LIMIT_WINDOW_MS=60000
+RATE_LIMIT_MAX=120
 ```
 
 **Important:**
@@ -540,12 +533,12 @@ The application requires the API server and background worker.
 
 ### Start the API Server
 
-Use the start or development script defined in `package.json`.
+Use the start script for the API or the development script while editing.
 
 For example:
 
 ```bash
-npm run dev
+npm start
 ```
 
 ### Start the Background Worker
@@ -583,7 +576,7 @@ Use the actual health route configured in the application.
 
 ## 15. API Testing
 
-Postman is used to test the REST APIs.
+Postman or another HTTP client can be used to exercise the REST APIs. Automated checks are listed below.
 
 The following workflows should be tested:
 
@@ -624,9 +617,7 @@ The following workflows should be tested:
 
 ### Test Results
 
-Booking API and booking confirmation email delivery have been tested successfully using Postman and Gmail.
-
-Other test results should be documented after verification.
+Audit run: `npm run lint`, `npm run typecheck`, `npm run lint:syntax`, and `npm test` passed. `npm test` reported 2 passing HTTP smoke tests and skipped the opt-in database integration test. SMTP delivery, full database integration, Docker image build, cloud deployment, and k6 load tests are not verified. See `SUBMISSION_NOW.md` for the current submission checklist.
 
 ---
 
@@ -638,6 +629,7 @@ The application includes important security measures:
 - Role-based authorization
 - Password hashing
 - Environment-based secrets
+- Organizer registration depends on a reusable shared invite secret; protect it and rotate or remove it to stop further signups.
 - Request validation
 - Protected routes
 - Idempotency support for booking requests
@@ -723,25 +715,29 @@ The application can be deployed using cloud hosting services.
 
 | Component | Suggested Hosting |
 |---|---|
-| Backend API | Vercel |
+| Backend API | A host that supports a long-running Node.js web service |
 | MongoDB | MongoDB Atlas |
 | Redis | Redis Cloud or another managed Redis provider |
-| Background Worker | Render, Railway, or another always-on worker host |
-| Email Service | Gmail SMTP |
+| Background Worker | A host that supports a separate long-running worker process |
+| Email Service | SMTP provider configured with authorized sender |
 
 ### Important Deployment Consideration
 
-Vercel serverless functions are designed for request-based execution. A continuously running BullMQ worker should not be hosted inside a normal Vercel serverless function.
+The API entry point starts a persistent Express listener, and the queue worker is also a persistent process. A serverless platform is suitable only if its documented runtime supports the API pattern and a separate persistent worker is hosted elsewhere.
 
 Therefore:
 
-- Deploy the API on Vercel.
+- Deploy the API as a long-running Node.js web service using `npm start` and configure its `PORT` setting.
 - Configure MongoDB Atlas as the production database.
 - Configure a managed Redis service.
 - Deploy the worker as a separate long-running service.
 - Configure the same required production environment variables for the API and worker.
 
 Both API and worker must connect to the same MongoDB database and Redis instance.
+
+This repository starts Express by calling `app.listen()` in `src/server.js` and has no serverless adapter or function configuration. It is therefore not ready to deploy as a serverless API without additional adaptation. The Dockerfile defaults to the API command; deploy the worker as a separate service with the same image and the command `npm run worker`. The current `docker-compose.yml` starts only MongoDB and Redis for local development.
+
+Set `PORT`, `MONGODB_URI`, `REDIS_URL`, `JWT_SECRET` (at least 32 characters), `ORGANIZER_INVITE_SECRET`, `CLIENT_ORIGIN`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and `MAIL_FROM` in the API/worker environment as applicable. Both processes require MongoDB and Redis; the API must also have a valid JWT secret. The worker requires SMTP credentials when it sends a job. Start the API with `npm start` and the worker with `npm run worker`; the health route is `/health`.
 
 ### Production URLs
 
@@ -754,7 +750,7 @@ YOUR_DEPLOYED_API_URL
 **Health Check:**
 
 ```text
-YOUR_DEPLOYED_API_URL/YOUR_HEALTH_ROUTE
+YOUR_DEPLOYED_API_URL/health
 ```
 
 Replace these placeholders after deployment.

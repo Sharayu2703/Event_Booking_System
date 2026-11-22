@@ -13,9 +13,9 @@
 
 ## Verified in this archive
 
-- `npm run lint`, `npm run typecheck`, `npm run lint:syntax`, and the two HTTP smoke tests passed in this workspace.
-- The database integration test is implemented but was skipped; Docker was unavailable and the MongoDB memory binary download was too large to complete here.
-- The Docker image build, SMTP delivery, deployment, and load-test results have NOT been verified. Do not claim they have been completed.
+- `npm run lint`, `npm run typecheck`, and `npm run lint:syntax` passed during the 2026-11-22 audit. `npm test` passed both HTTP smoke tests and skipped the opt-in database integration test.
+- The database integration test is implemented but was skipped by default. It requires `RUN_DB_INTEGRATION=1` and a MongoDB 7.0.14 memory-server binary; a partial binary download is present locally, so it was not attempted during this audit.
+- `npm run build` successfully built the Docker image during the 2026-11-22 audit. SMTP delivery, deployment, and load-test results have NOT been verified. Do not claim they have been completed.
 
 ## Fast local setup
 
@@ -60,4 +60,4 @@ If you have only minutes left, submit the code archive plus your actual reposito
 
 ## Security
 
-No `.env` file is included in this workspace. Keep your local `.env` out of Git and submission ZIPs. Use separate strong JWT and organizer invite secrets, and rotate them if they were exposed elsewhere.
+A local `.env` file exists in this workspace and is ignored by Git. Exclude it from any submission ZIP or upload. Use separate strong JWT and organizer invite secrets, and rotate them if they were exposed elsewhere.

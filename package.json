@@ -11,7 +11,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "worker": "node src/workers/worker.js",
-    "build": "docker build -t event-booking-api .",
+    "build": "npm run lint:syntax",
     "test": "node --test",
     "test:smoke": "node --test tests/smoke.test.js",
     "test:integration": "node --test tests/integration.test.js",
