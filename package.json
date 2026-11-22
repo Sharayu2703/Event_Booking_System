@@ -1,0 +1,47 @@
+{
+  "name": "event-booking-mern-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Role-based event booking API with MongoDB, Redis/BullMQ background jobs and k6 load tests",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "worker": "node src/workers/worker.js",
+    "build": "docker build -t event-booking-api .",
+    "test": "node --test",
+    "test:smoke": "node --test tests/smoke.test.js",
+    "test:integration": "node --test tests/integration.test.js",
+    "load": "k6 run scripts/k6-bookings.js",
+    "lint": "eslint src tests scripts",
+    "lint:syntax": "node scripts/syntax-check.js",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "bullmq": "^5.34.10",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "ioredis": "^5.4.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.9.5",
+    "nodemailer": "^10.6.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.25",
+    "@types/supertest": "^7.2.1",
+    "eslint": "^10.15.0",
+    "globals": "^17.14.0",
+    "mongodb-memory-server": "^11.4.0",
+    "supertest": "^7.0.0",
+    "typescript": "^7.0.2"
+  }
+}
