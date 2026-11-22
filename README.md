@@ -105,20 +105,20 @@ The application also supports idempotent booking requests to reduce duplicate bo
 
 ## 3. Technology Stack
 
-| Technology | Purpose |
-|---|---|
-| Node.js | JavaScript runtime |
-| Express.js | Backend framework |
-| MongoDB | Database |
-| Mongoose | MongoDB object modeling |
-| JWT | Authentication |
-| bcrypt | Password hashing |
-| Redis | Queue storage and job processing |
-| BullMQ | Background job management |
-| Nodemailer | Email sending |
-| SMTP provider | Email delivery |
-| Postman | API testing |
-| Docker | Local infrastructure |
+| Technology    | Purpose                          |
+| ------------- | -------------------------------- |
+| Node.js       | JavaScript runtime               |
+| Express.js    | Backend framework                |
+| MongoDB       | Database                         |
+| Mongoose      | MongoDB object modeling          |
+| JWT           | Authentication                   |
+| bcrypt        | Password hashing                 |
+| Redis         | Queue storage and job processing |
+| BullMQ        | Background job management        |
+| Nodemailer    | Email sending                    |
+| SMTP provider | Email delivery                   |
+| Postman       | API testing                      |
+| Docker        | Local infrastructure             |
 
 ---
 
@@ -206,18 +206,18 @@ The project uses separate modules for configuration, routing, data models, busin
 
 The system supports two roles.
 
-| Feature | Customer | Organizer |
-|---|---:|---:|
-| Register | Yes | Yes |
-| Login | Yes | Yes |
-| Browse Events | Yes | Yes |
-| Search Events | Yes | Yes |
-| Book Tickets | Yes | No |
-| View Own Bookings | Yes | No |
-| Create Events | No | Yes |
-| Update Own Events | No | Yes |
-| Delete Own Events | No | Yes |
-| Manage Event Inventory | No | Yes |
+| Feature                | Customer | Organizer |
+| ---------------------- | -------: | --------: |
+| Register               |      Yes |       Yes |
+| Login                  |      Yes |       Yes |
+| Browse Events          |      Yes |       Yes |
+| Search Events          |      Yes |       Yes |
+| Book Tickets           |      Yes |        No |
+| View Own Bookings      |      Yes |        No |
+| Create Events          |       No |       Yes |
+| Update Own Events      |       No |       Yes |
+| Delete Own Events      |       No |       Yes |
+| Manage Event Inventory |       No |       Yes |
 
 Role-based middleware protects restricted endpoints.
 
@@ -693,15 +693,15 @@ Potential optimization techniques include:
 
 Complete this table after running the actual load tests.
 
-| Metric | Initial Implementation | Optimized Implementation |
-|---|---:|---:|
-| Concurrent Users | TBD | TBD |
-| Booking Requests | TBD | TBD |
-| Successful Bookings | TBD | TBD |
-| Failed Requests | TBD | TBD |
-| Average Response Time | TBD | TBD |
-| p95 Response Time | TBD | TBD |
-| Error Rate | TBD | TBD |
+| Metric                | Initial Implementation | Optimized Implementation |
+| --------------------- | ---------------------: | -----------------------: |
+| Concurrent Users      |                    TBD |                      TBD |
+| Booking Requests      |                    TBD |                      TBD |
+| Successful Bookings   |                    TBD |                      TBD |
+| Failed Requests       |                    TBD |                      TBD |
+| Average Response Time |                    TBD |                      TBD |
+| p95 Response Time     |                    TBD |                      TBD |
+| Error Rate            |                    TBD |                      TBD |
 
 **Note:** Performance results must be measured through actual tests. No benchmark values are assumed or fabricated.
 
@@ -713,13 +713,13 @@ The application can be deployed using cloud hosting services.
 
 ### Recommended Production Architecture
 
-| Component | Suggested Hosting |
-|---|---|
-| Backend API | A host that supports a long-running Node.js web service |
-| MongoDB | MongoDB Atlas |
-| Redis | Redis Cloud or another managed Redis provider |
+| Component         | Suggested Hosting                                           |
+| ----------------- | ----------------------------------------------------------- |
+| Backend API       | A host that supports a long-running Node.js web service     |
+| MongoDB           | MongoDB Atlas                                               |
+| Redis             | Redis Cloud or another managed Redis provider               |
 | Background Worker | A host that supports a separate long-running worker process |
-| Email Service | SMTP provider configured with authorized sender |
+| Email Service     | SMTP provider configured with authorized sender             |
 
 ### Important Deployment Consideration
 
@@ -744,16 +744,8 @@ Set `PORT`, `MONGODB_URI`, `REDIS_URL`, `JWT_SECRET` (at least 32 characters), `
 **Backend API:**
 
 ```text
-YOUR_DEPLOYED_API_URL
+https://event-booking-system-sigma-bice.vercel.app/
 ```
-
-**Health Check:**
-
-```text
-YOUR_DEPLOYED_API_URL/health
-```
-
-Replace these placeholders after deployment.
 
 ---
 
