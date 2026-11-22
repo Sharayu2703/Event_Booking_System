@@ -41,7 +41,7 @@ SMTP_PASS=your_google_app_password
 MAIL_FROM=Event Booking <your_gmail_address>
 ```
 
-Alternatively use a transactional email provider's SMTP settings and an authorized sender. Do not put real secrets in this archive.
+Alternatively, use a transactional email provider's SMTP settings and an authorized sender. Do not put real secrets in this archive.
 
 ## Before submitting — be accurate
 
@@ -51,12 +51,12 @@ If you have only minutes left, submit the code archive plus your actual reposito
 
 ## 3-minute demo narration outline
 
-1. (0:00–0:20) Introduce yourself in English and show the deployed API URL / health response, if deployed.
-2. (0:20–0:55) Show customer registration/login and explain JWT role-based access.
-3. (0:55–1:35) Show organizer event creation and customer booking with an idempotency key.
-4. (1:35–2:05) Explain atomic inventory decrement, MongoDB indexes, and BullMQ background jobs/outbox.
-5. (2:05–2:35) Show a real confirmation/update email if verified. If SMTP is not configured or delivery is unverified, state that directly.
-6. (2:35–3:00) Show actual k6 output if run and state measured p95/error rates. Do not make up capacity numbers.
+1. **(0:00–0:20)** Introduce yourself in English and show the deployed API URL / health response, if deployed.
+2. **(0:20–0:55)** Show customer registration/login and explain JWT role-based access.
+3. **(0:55–1:35)** Show organizer event creation and customer booking with an idempotency key.
+4. **(1:35–2:05)** Explain atomic inventory decrement, MongoDB indexes, and BullMQ background jobs/outbox.
+5. **(2:05–2:35)** Show a real confirmation/update email if verified. If SMTP is not configured or delivery is unverified, state that directly.
+6. **(2:35–3:00)** Show actual k6 output if run and state measured p95/error rates. Do not make up capacity numbers.
 
 ## Security
 

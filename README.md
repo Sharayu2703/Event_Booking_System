@@ -1,173 +1,799 @@
-# Event Booking System API (MERN backend)
+# Event Booking System – Backend API
 
-A backend hiring-test implementation using **Node.js, Express, MongoDB/Mongoose, Redis and BullMQ**. This repository contains the API, background worker, SMTP email integration, smoke and opt-in database integration tests, a k6 load-test script, Docker helpers, and deployment notes.
+A RESTful backend application for managing events and booking tickets, built with Node.js, Express.js, MongoDB, Redis, and BullMQ.
 
-> **Honest verification status:** ESLint, JavaScript syntax checks, and HTTP smoke tests pass. The database integration suite is implemented but was not run in this workspace because its MongoDB binary download is about 592 MB and Docker's engine is unavailable. SMTP delivery and cloud deployment were not verified. No performance numbers are fabricated; run k6 and record your actual output.
+The system supports two types of users:
 
-## Features
+- **Event Organizers:** Create, manage, and update events.
+- **Customers:** Browse events and book tickets.
 
-- Customer registration and login with bcrypt password hashing and JWT.
-- Organizer registration protected by `ORGANIZER_INVITE_SECRET` and `x-organizer-invite` header; public registration can only create customers.
-- Role-based authorization and organizer ownership checks.
-- Event creation, browse/search/pagination, detail, update, cancellation status, and guarded deletion.
-- Ticket booking with atomic conditional inventory decrement, quantity validation, and idempotency key.
-- BullMQ background tasks: booking confirmation email and event update email to customers with confirmed bookings.
-- MongoDB outbox records plus a polling dispatcher to reduce the chance of lost queue jobs.
-- Helmet, CORS configuration, request body limit, rate limiting, structured error responses, health endpoint.
-- k6 concurrent booking test script, HTTP smoke tests, and opt-in MongoDB integration coverage for idempotency and concurrent inventory.
+It includes JWT-based authentication, role-based authorization, booking idempotency, asynchronous background jobs, and real email notifications.
 
-## Requirements
+---
 
-- Node.js 20+
-- Docker Desktop (recommended for local MongoDB and Redis) or equivalent MongoDB and Redis services
-- SMTP account with permission to send real emails (Resend SMTP or another provider)
-- k6 for load testing
+## Table of Contents
 
-## Quick start
+1. Project Overview
+2. Features
+3. Technology Stack
+4. System Architecture
+5. Project Structure
+6. User Roles and Permissions
+7. API Overview
+8. Background Job Processing
+9. Email Notification System
+10. Database Design
+11. Important Design Decisions
+12. Installation and Local Setup
+13. Environment Variables
+14. Running the Application
+15. API Testing
+16. Error Handling and Security
+17. Performance and Load Testing
+18. Deployment Architecture
+19. Known Limitations and Future Improvements
+20. Author
 
-1. Copy `.env.example` to `.env` and configure secrets and SMTP settings. Set `JWT_SECRET` to a random string at least 32 characters long. Set `ORGANIZER_INVITE_SECRET` to a separate strong secret.
-2. Start local dependencies:
+---
 
-   ```bash
-   docker compose up -d mongo redis
-   ```
+## 1. Project Overview
 
-3. Install dependencies and run checks:
+The Event Booking System is a backend application designed to manage event creation, event discovery, and ticket reservations.
 
-   ```bash
-   npm install
-   npm run build
-   npm run lint
-   npm run lint:syntax
-   npm run typecheck
-   npm test
-   ```
+Organizers can create and manage events, while customers can browse available events and reserve tickets.
 
-4. Start the API and worker in separate terminals:
+The application uses role-based access control to ensure that users can access only the operations permitted for their roles.
 
-   ```bash
-   npm start
-   npm run worker
-   ```
+To improve responsiveness, email notifications are processed asynchronously using BullMQ and Redis.
 
-5. Check `GET http://localhost:4000/health`.
+The system provides two important background workflows:
 
-The API requires MongoDB and Redis to be reachable at startup. The worker requires the same `.env` and services. SMTP is checked when a job sends; if SMTP is not configured, jobs fail and retry rather than pretending an email was sent.
+1. Booking Confirmation Email
+2. Event Update Notification Email
 
-### Automated tests
+The application also supports idempotent booking requests to reduce duplicate bookings when clients retry requests.
 
-`npm test` runs dependency-light HTTP smoke tests and skips the database integration suite by default. To run the MongoDB-backed auth, organizer permissions, idempotency and concurrent inventory test, set `RUN_DB_INTEGRATION=1` and run `npm run test:integration`. It uses a MongoDB memory server and downloads a MongoDB binary if one is not cached locally. Alternatively, point `MONGOMS_SYSTEM_BINARY` at an installed `mongod` executable to use that local binary.
+---
 
-## API reference
+## 2. Features
 
-Base URL: `http://localhost:4000`
+### Authentication and Authorization
 
-### Authentication
+- Customer registration
+- Organizer registration
+- User login
+- JWT-based authentication
+- Role-based access control
+- Protected API endpoints
 
-- `POST /api/auth/register` — `{ "name": "Customer One", "email": "customer@example.com", "password": "securePass123" }`
-- `POST /api/auth/register-organizer` — same body, plus `x-organizer-invite: <ORGANIZER_INVITE_SECRET>` header.
-- `POST /api/auth/login` — `{ "email": "customer@example.com", "password": "securePass123" }`; returns `{ token, user }`.
+### Event Management
 
-Use `Authorization: Bearer <token>` for protected routes.
+- Create events
+- Update events
+- Delete events
+- Browse available events
+- Search and filter events
+- View event details
+- Manage ticket inventory
 
-### Events
+### Ticket Booking
 
-- `GET /api/events?page=1&limit=20&search=music`
-- `GET /api/events/:id`
-- `POST /api/events` (organizer):
+- Customers can book event tickets.
+- Booking confirmation is generated after a successful booking.
+- Available ticket inventory is updated.
+- Booking records are stored in MongoDB.
+- Idempotency keys help prevent duplicate bookings on request retries.
+- Customers can access their booking information.
 
-  ```json
-  { "title": "Live Music Night", "description": "Local artists", "venue": "City Hall", "startsAt": "2030-05-01T18:00:00.000Z", "totalTickets": 100 }
-  ```
+### Background Processing
 
-- `PATCH /api/events/:id` (owning organizer): any supported subset of `title`, `description`, `venue`, `startsAt`, `status`. `startsAt` must be in the future. `status` can be `PUBLISHED` or `CANCELLED`.
-- `DELETE /api/events/:id` (owning organizer): rejected with 409 if confirmed bookings exist; cancel instead.
+- BullMQ for job queue management
+- Redis as the queue backend
+- Separate background worker
+- Asynchronous booking confirmation emails
+- Event update notifications to customers who booked the event
 
-### Bookings
+### Email Notifications
 
-- `POST /api/events/:id/bookings` (customer) with headers `Authorization`, `Content-Type: application/json`, and `Idempotency-Key` (8-128 chars), body `{ "quantity": 2 }`.
-- `GET /api/bookings/me` (customer)
-- `GET /api/bookings/:id` (booking owner or event's organizer)
+- Nodemailer integration
+- Gmail SMTP configuration
+- Real email delivery
+- Booking confirmation email
+- Event update notification email
 
-Typical responses: `201` new booking; `200` idempotent replay; `400` invalid input; `401` missing/invalid token; `403` role/ownership denied; `404` unknown resource; `409` sold out, cancelled event, or idempotency conflict; `429` rate limit; `500` unexpected server failure.
+---
 
-## Email and background job design
+## 3. Technology Stack
 
-The API creates an outbox record for a booking confirmation or event update. A dispatcher polls pending outbox records and enqueues BullMQ jobs. The worker uses Nodemailer over SMTP and retries transient failures with exponential backoff. Outbox rows record `PENDING`, `QUEUED`, `DELIVERED` or `FAILED` status and the last error. Configure real SMTP credentials before testing. Check provider logs and the recipient inbox/spam folder to verify delivery. Event update notifications are sent individually to confirmed bookers; cancelled bookings are excluded at processing time.
+| Technology | Purpose |
+|---|---|
+| Node.js | JavaScript runtime |
+| Express.js | Backend framework |
+| MongoDB | Database |
+| Mongoose | MongoDB object modeling |
+| JWT | Authentication |
+| bcrypt | Password hashing |
+| Redis | Queue storage and job processing |
+| BullMQ | Background job management |
+| Nodemailer | Email sending |
+| Gmail SMTP | Email delivery |
+| Postman | API testing |
+| Docker | Local infrastructure |
 
-The outbox reduces enqueue-loss risk but this sample is not a complete exactly-once delivery system. The outbox dispatcher and worker need operational monitoring; duplicate delivery is possible around crashes/provider timeouts. Production hardening should include delivery-attempt records, dead-letter handling, alerting, and reconciliation of stuck PENDING outbox rows. Also, booking inventory decrement and booking creation are compensating operations rather than one MongoDB transaction; for stronger crash consistency, use a MongoDB replica set and a transaction-based implementation or a reservation state machine.
+---
 
-## Data and concurrency decisions
+## 4. System Architecture
 
-- MongoDB is the primary data store. Mongoose models define required fields, enum values and indexes.
-- Booking inventory is decremented using one conditional `findOneAndUpdate` requiring `availableTickets >= quantity`. MongoDB applies that single-document update atomically, so simultaneous requests cannot decrement the same inventory below zero.
-- Booking has a unique compound index on `(customer, idempotencyKey)` to prevent duplicate bookings for the same operation.
-- A compensating inventory increment is attempted if booking insert fails. A process crash between decrement and insert remains a known limitation; see above.
-- Booking quantity is limited to 1-10. Event inventory is capped at one million tickets.
-- Event listing uses pagination and an index on status/start time. Add a dedicated text-search index or Atlas Search for high-volume search workloads.
-- Rate limits are per process by default; multi-instance deployment should use a shared rate-limit store.
-- JWT tokens are stateless and currently have no refresh/revocation mechanism. Use HTTPS and protect secrets in deployment settings.
+The application follows a modular backend architecture.
 
-## Manual end-to-end checklist
+### High-Level Architecture
 
-- [ ] Customer registration succeeds; invalid email/password rejected.
-- [ ] Organizer registration fails without the invite header and succeeds with the secret.
-- [ ] Login returns a JWT; wrong password returns 401.
-- [ ] Customer cannot create/update/delete events.
-- [ ] Organizer cannot update an event owned by another organizer.
-- [ ] Event listing supports page, limit and search.
-- [ ] Booking requires auth, CUSTOMER role, valid quantity and idempotency key.
-- [ ] Same idempotency key and same request replays the booking; different payload returns 409.
-- [ ] Concurrent booking requests never produce negative available inventory or more confirmed tickets than capacity.
-- [ ] Booking confirmation email is delivered through SMTP.
-- [ ] Event update email is delivered to all eligible customers with confirmed bookings.
-- [ ] Worker retry behavior is visible for a deliberate transient failure.
-- [ ] Deleting an event with confirmed bookings returns 409.
-- [ ] `GET /health` returns 200 and unknown routes return 404.
-- [ ] k6 results and environment details are recorded below.
+```text
+                 CLIENT / POSTMAN
+                        |
+                        |
+                  EXPRESS API
+                        |
+          +-------------+-------------+
+          |             |             |
+       Auth API      Event API    Booking API
+          |             |             |
+          +-------------+-------------+
+                        |
+                     MONGODB
+                        |
+                        |
+                BACKGROUND JOB QUEUE
+                     BULLMQ
+                        |
+                      REDIS
+                        |
+                        |
+                 BACKGROUND WORKER
+                        |
+                    NODEMAILER
+                        |
+                    GMAIL SMTP
+                        |
+                        |
+                  CUSTOMER EMAIL
+```
 
-## Load test
+### Architecture Explanation
 
-First create an event with sufficient inventory and a test customer token. Do not load-test production data or an event with real customers. Set environment variables in your shell:
+1. The client sends HTTP requests to the Express API.
+2. Authentication middleware validates JWT tokens.
+3. Authorization middleware checks user roles.
+4. Controllers process incoming requests.
+5. Mongoose communicates with MongoDB.
+6. Successful booking or event update operations enqueue background jobs.
+7. Redis stores the queued jobs through BullMQ.
+8. The background worker processes the jobs.
+9. Nodemailer sends real email notifications using Gmail SMTP.
+
+This separation prevents email delivery from blocking the main API request.
+
+---
+
+## 5. Project Structure
+
+The backend follows a modular folder structure.
+
+```text
+event-booking-system/
+│
+├── src/
+│   ├── config/
+│   │   ├── env.js
+│   │   └── database.js
+│   │
+│   ├── controllers/
+│   │
+│   ├── middleware/
+│   │
+│   ├── models/
+│   │
+│   ├── routes/
+│   │
+│   ├── services/
+│   │   └── mailer.js
+│   │
+│   ├── workers/
+│   │   └── worker.js
+│   │
+│   └── ...
+│
+├── .env.example
+├── .gitignore
+├── docker-compose.yml
+├── package.json
+└── README.md
+```
+
+The project uses separate modules for configuration, routing, data models, business logic, and background processing.
+
+---
+
+## 6. User Roles and Permissions
+
+The system supports two roles.
+
+| Feature | Customer | Organizer |
+|---|---:|---:|
+| Register | Yes | Yes |
+| Login | Yes | Yes |
+| Browse Events | Yes | Yes |
+| Search Events | Yes | Yes |
+| Book Tickets | Yes | No |
+| View Own Bookings | Yes | No |
+| Create Events | No | Yes |
+| Update Own Events | No | Yes |
+| Delete Own Events | No | Yes |
+| Manage Event Inventory | No | Yes |
+
+Role-based middleware protects restricted endpoints.
+
+Users must provide a valid JWT token to access protected resources.
+
+---
+
+## 7. API Overview
+
+The application exposes REST APIs for authentication, event management, and booking operations.
+
+### Authentication APIs
+
+- Customer registration
+- Organizer registration
+- User login
+
+### Event APIs
+
+- Get all events
+- Search events
+- Get event details
+- Create an event
+- Update an event
+- Delete an event
+
+### Booking APIs
+
+- Create a booking
+- View booking details
+- View customer bookings
+
+**Note:** Refer to the actual route files in `src/routes/` for the exact HTTP methods, endpoint paths, request bodies, and authorization requirements.
+
+All protected APIs require the appropriate JWT access token.
+
+---
+
+## 8. Background Job Processing
+
+The application uses BullMQ and Redis for asynchronous task processing.
+
+Background jobs are used for two workflows.
+
+### Background Task 1: Booking Confirmation
+
+**Trigger:** When a customer successfully books tickets.
+
+Workflow:
+
+1. Customer submits a booking request.
+2. The API validates the booking.
+3. Booking information is saved.
+4. A booking confirmation job is added to the queue.
+5. The background worker receives the job.
+6. The worker processes the email task.
+7. Nodemailer sends a real confirmation email.
+8. The customer receives booking details.
+
+The email includes:
+
+- Customer name
+- Event name
+- Venue
+- Event date
+- Ticket quantity
+- Booking reference
+
+### Background Task 2: Event Update Notification
+
+**Trigger:** When an organizer updates an event.
+
+Workflow:
+
+1. Organizer updates an event.
+2. The API saves the updated event information.
+3. The system identifies customers who booked that event.
+4. An event update notification job is queued.
+5. The background worker processes the notification.
+6. Customers receive event update emails.
+
+This ensures customers are informed when an event they booked is updated.
+
+### Why Background Jobs?
+
+- Avoid blocking API responses during email delivery.
+- Separate email processing from business logic.
+- Allow asynchronous task execution.
+- Support retry and job management capabilities through BullMQ.
+
+---
+
+## 9. Email Notification System
+
+The application uses Nodemailer with Gmail SMTP to send real emails.
+
+Email configuration is stored in environment variables.
+
+The SMTP credentials are never hardcoded into application source files.
+
+The mailer service is responsible for sending email messages, while background workers trigger email delivery.
+
+**Important:** Successful queue insertion does not guarantee final email delivery. Delivery should be verified through the recipient's inbox and email provider responses.
+
+---
+
+## 10. Database Design
+
+MongoDB is used as the primary database.
+
+The application stores information related to users, events, and bookings.
+
+### User
+
+Stores customer and organizer information.
+
+Important fields include:
+
+- Name
+- Email
+- Password hash
+- Role
+- Created timestamp
+- Updated timestamp
+
+Passwords are stored as hashes rather than plain text.
+
+### Event
+
+Stores event information and ticket inventory.
+
+The event information includes details such as:
+
+- Event title
+- Description
+- Venue
+- Date
+- Ticket availability
+- Organizer information
+- Event revision information
+
+### Booking
+
+Stores customer ticket reservations.
+
+Important fields include:
+
+- Customer reference
+- Event reference
+- Ticket quantity
+- Booking status
+- Idempotency key
+- Event revision at booking
+- Created timestamp
+- Updated timestamp
+
+MongoDB references are used to connect related records.
+
+---
+
+## 11. Important Design Decisions
+
+### 1. JWT Authentication
+
+JWT was selected to authenticate users and protect restricted APIs.
+
+It allows the backend to validate user identity without maintaining traditional server-side session state.
+
+### 2. Role-Based Authorization
+
+Two roles are supported: CUSTOMER and ORGANIZER.
+
+Authorization middleware ensures that users cannot perform operations outside their permissions.
+
+### 3. MongoDB
+
+MongoDB was selected for flexible document-based data storage.
+
+Mongoose provides schema definitions, validation, and database interaction.
+
+### 4. Booking Idempotency
+
+An idempotency key is used to identify repeated booking requests.
+
+This helps prevent duplicate bookings when a client retries a request after a timeout or network failure.
+
+### 5. Background Processing
+
+BullMQ and Redis were selected to process email notifications asynchronously.
+
+This keeps email delivery separate from the main request-response lifecycle.
+
+### 6. Separate Worker Process
+
+A dedicated worker processes queued email jobs.
+
+The API and worker can run as separate processes.
+
+### 7. Environment-Based Configuration
+
+Database credentials, JWT secrets, Redis configuration, and SMTP credentials are stored in environment variables.
+
+Sensitive configuration is not committed to GitHub.
+
+### 8. Email Service Separation
+
+Nodemailer email functionality is separated into a mailer service.
+
+This makes the email-sending logic reusable across different workflows.
+
+### 9. Inventory Consistency
+
+Ticket inventory must remain consistent when multiple customers attempt to book the same event.
+
+The current implementation performs inventory decrement and booking insertion as separate database operations.
+
+This means a failure between these operations can leave inventory and booking records inconsistent.
+
+A production-grade implementation should use a MongoDB transaction or an atomic reservation workflow to ensure inventory and booking changes succeed or fail together.
+
+---
+
+## 12. Installation and Local Setup
+
+### Prerequisites
+
+Install the following:
+
+- Node.js
+- npm
+- MongoDB or MongoDB Atlas
+- Redis
+- Git
+
+### Step 1: Clone the Repository
 
 ```bash
-BASE_URL=http://localhost:4000 \
-CUSTOMER_TOKEN='paste_test_customer_jwt' \
-EVENT_ID='paste_event_object_id' \
-START_VUS=10 TARGET_VUS=50 MAX_VUS=100 \
-k6 run scripts/k6-bookings.js
+git clone https://github.com/Sharayu2703/Event_Booking_System
 ```
 
-PowerShell example:
+### Step 2: Open the Project
 
-```powershell
-$env:BASE_URL='http://localhost:4000'
-$env:CUSTOMER_TOKEN='paste_test_customer_jwt'
-$env:EVENT_ID='paste_event_object_id'
-$env:START_VUS='10'; $env:TARGET_VUS='50'; $env:MAX_VUS='100'
-k6 run scripts/k6-bookings.js
+```bash
+cd Event_Booking_System
 ```
 
-The script treats 409 sold-out and 429 rate-limit responses as expected business/system-policy outcomes, not unexpected server failures. Check `unexpected_failures`, latency percentiles, successful booking rate, database inventory and queue backlog. For a meaningful capacity test, replenish/reset inventory between runs and use the same event, environment, stages and duration for baseline and optimized versions. A 409 due to inventory exhaustion does not itself mean performance degraded.
+### Step 3: Install Dependencies
 
-### Results log (fill with measured data)
+```bash
+npm install
+```
 
-| Run | VUs/stages | Successful bookings | Unexpected errors | p95 latency | Inventory correct? | Environment/notes |
-|---|---|---:|---:|---:|---|---|
-| Baseline | Not run yet | — | — | — | — | Record actual values |
-| Optimized | Not run yet | — | — | — | — | Record actual values |
+### Step 4: Configure Environment Variables
 
-Recommended improvements to benchmark independently: database connection/pool sizing, indexes, queue worker concurrency, bounded email batches, rate-limit tuning, MongoDB replica set/transaction strategy, and separate API/worker resources. Report the actual sustainable threshold using explicit p95 and error-rate targets; don't claim an unmeasured concurrent-user limit.
+Create a `.env` file in the project root.
 
-## Deployment
+Use the variable names defined in `src/config/env.js` and your `.env.example`.
 
-Deploy API and worker as separate long-running services using the same image/repository and environment variables. Attach managed MongoDB and Redis-compatible services. Set `PORT`, `MONGODB_URI`, `REDIS_URL`, `JWT_SECRET`, `ORGANIZER_INVITE_SECRET`, `CLIENT_ORIGIN`, and SMTP variables in the host dashboard. API start command: `npm start`; worker command: `npm run worker`; health path: `/health`. Ensure the platform supports long-running workers and outbound SMTP. Use TLS, managed secrets and a restricted production database. This repository has not been deployed from this environment; add the real URL after deployment.
+### Step 5: Start MongoDB and Redis
 
-## Known limitations / next steps
+If using Docker Compose:
 
-1. The opt-in MongoDB integration suite uses a standalone memory server; also test transaction and failover behavior against a disposable MongoDB replica set before production use.
-2. Atomic decrement + booking insert needs transaction/state-machine hardening for process-crash safety.
-3. Outbox delivery needs reconciliation/monitoring and per-recipient dedupe for production-grade email guarantees.
-4. `GET /api/bookings/:id` uses role/ownership checks, but organizer access is restricted to the event's owner.
-5. Configure shared rate-limit storage before running multiple API replicas.
-6. This archive does not include a frontend; “MERN” here means MongoDB, Express, React-compatible API, and Node.js backend. The hiring test is backend-focused.
+```bash
+docker compose up -d
+```
+
+If MongoDB and Redis are already running, reuse those services instead of starting duplicate containers.
+
+---
+
+## 13. Environment Variables
+
+The application uses environment variables for configuration.
+
+Typical configuration includes:
+
+```env
+PORT=5000
+
+MONGODB_URI=your_mongodb_connection_string
+
+JWT_SECRET=your_secure_jwt_secret
+
+REDIS_URL=your_redis_connection_string
+
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your_gmail_address
+SMTP_PASS=your_gmail_app_password
+
+MAIL_FROM=your_gmail_address
+```
+
+**Important:**
+
+- Use the exact variable names expected by `src/config/env.js`.
+- Use a Gmail App Password when required by your Gmail SMTP setup.
+- Never commit the `.env` file.
+- Never expose database passwords, JWT secrets, or SMTP credentials.
+- Configure production environment variables in the hosting provider dashboard.
+
+---
+
+## 14. Running the Application
+
+The application requires the API server and background worker.
+
+### Start the API Server
+
+Use the start or development script defined in `package.json`.
+
+For example:
+
+```bash
+npm run dev
+```
+
+### Start the Background Worker
+
+```bash
+npm run worker
+```
+
+The worker connects to MongoDB and starts processing background jobs.
+
+Expected worker startup output:
+
+```text
+MongoDB connected
+Background worker started
+```
+
+### Health Check
+
+The API provides a health endpoint.
+
+Example successful response:
+
+```json
+{
+  "status": "ok",
+  "service": "event-booking-api",
+  "timestamp": "2026-11-22T10:03:14.316Z"
+}
+```
+
+Use the actual health route configured in the application.
+
+---
+
+## 15. API Testing
+
+Postman is used to test the REST APIs.
+
+The following workflows should be tested:
+
+### Authentication Testing
+
+- Customer registration
+- Organizer registration
+- Customer login
+- Organizer login
+- Invalid credentials
+- Unauthorized requests
+
+### Event Testing
+
+- Browse events
+- Search events
+- View event details
+- Create an event as an organizer
+- Update an event
+- Delete an event
+- Verify role-based restrictions
+
+### Booking Testing
+
+- Book tickets as a customer
+- Verify booking confirmation
+- Verify available ticket count
+- Retry a request with the same idempotency key
+- Verify that duplicate booking is prevented
+- Verify insufficient inventory handling
+
+### Email Testing
+
+- Verify actual booking confirmation email delivery.
+- Verify event update notification email delivery.
+- Verify that the worker processes queued jobs.
+- Check failed jobs and SMTP errors.
+
+### Test Results
+
+Booking API and booking confirmation email delivery have been tested successfully using Postman and Gmail.
+
+Other test results should be documented after verification.
+
+---
+
+## 16. Error Handling and Security
+
+The application includes important security measures:
+
+- JWT-based authentication
+- Role-based authorization
+- Password hashing
+- Environment-based secrets
+- Request validation
+- Protected routes
+- Idempotency support for booking requests
+
+Production deployment should additionally ensure:
+
+- HTTPS communication
+- Restricted CORS origins
+- Appropriate request rate limits
+- Secure environment configuration
+- Database access restrictions
+- Monitoring and logging
+- Safe error responses without exposing internal secrets
+
+---
+
+## 17. Performance and Load Testing
+
+Performance testing is important because multiple customers may attempt to book tickets for the same event simultaneously.
+
+The objective is to identify the maximum concurrent booking load the system can handle before performance degrades.
+
+### Testing Objectives
+
+- Measure API response times.
+- Measure successful booking requests.
+- Identify failed or dropped requests.
+- Measure error rates.
+- Identify inventory consistency issues.
+- Determine the system's practical concurrency limits.
+
+### Initial Implementation
+
+The initial implementation should be tested using a load-testing tool such as k6.
+
+Record:
+
+- Number of virtual users
+- Number of concurrent booking requests
+- Total requests
+- Successful requests
+- Failed requests
+- Average response time
+- p95 response time
+- Error rate
+
+### Optimization Approach
+
+Potential optimization techniques include:
+
+1. Database indexing.
+2. Atomic ticket inventory updates.
+3. MongoDB transactions for consistent booking operations.
+4. Optimized database queries.
+5. Connection pool configuration.
+6. Background processing for non-critical operations.
+7. Improved queue processing and worker configuration.
+8. Appropriate request rate limiting.
+
+### Final Performance Results
+
+Complete this table after running the actual load tests.
+
+| Metric | Initial Implementation | Optimized Implementation |
+|---|---:|---:|
+| Concurrent Users | TBD | TBD |
+| Booking Requests | TBD | TBD |
+| Successful Bookings | TBD | TBD |
+| Failed Requests | TBD | TBD |
+| Average Response Time | TBD | TBD |
+| p95 Response Time | TBD | TBD |
+| Error Rate | TBD | TBD |
+
+**Note:** Performance results must be measured through actual tests. No benchmark values are assumed or fabricated.
+
+---
+
+## 18. Deployment Architecture
+
+The application can be deployed using cloud hosting services.
+
+### Recommended Production Architecture
+
+| Component | Suggested Hosting |
+|---|---|
+| Backend API | Vercel |
+| MongoDB | MongoDB Atlas |
+| Redis | Redis Cloud or another managed Redis provider |
+| Background Worker | Render, Railway, or another always-on worker host |
+| Email Service | Gmail SMTP |
+
+### Important Deployment Consideration
+
+Vercel serverless functions are designed for request-based execution. A continuously running BullMQ worker should not be hosted inside a normal Vercel serverless function.
+
+Therefore:
+
+- Deploy the API on Vercel.
+- Configure MongoDB Atlas as the production database.
+- Configure a managed Redis service.
+- Deploy the worker as a separate long-running service.
+- Configure the same required production environment variables for the API and worker.
+
+Both API and worker must connect to the same MongoDB database and Redis instance.
+
+### Production URLs
+
+**Backend API:**
+
+```text
+YOUR_DEPLOYED_API_URL
+```
+
+**Health Check:**
+
+```text
+YOUR_DEPLOYED_API_URL/YOUR_HEALTH_ROUTE
+```
+
+Replace these placeholders after deployment.
+
+---
+
+## 19. Known Limitations and Future Improvements
+
+The following improvements are recommended for a more production-ready system:
+
+- Use MongoDB transactions or an atomic reservation workflow for booking consistency.
+- Improve recovery for failed and stalled background jobs.
+- Add monitoring for queue processing and email delivery.
+- Implement stronger duplicate-notification protection.
+- Add comprehensive integration tests.
+- Perform stress testing under different concurrency levels.
+- Add structured logging and production monitoring.
+- Implement automated deployment pipelines.
+- Improve API documentation using Swagger/OpenAPI.
+- Add email delivery tracking and retry policies.
+
+---
+
+## 20. Author
+
+**Sharayu Borude**
+
+Computer Engineering Graduate
+
+Project: Event Booking System – Backend API
+
+---
+
+## Conclusion
+
+The Event Booking System demonstrates the implementation of a backend application with authentication, role-based authorization, event management, ticket booking, idempotency, and asynchronous email notifications.
+
+The project uses Node.js, Express.js, MongoDB, Redis, BullMQ, and Nodemailer to build a modular backend architecture.
+
+The main focus is to provide reliable booking workflows, asynchronous communication, and a foundation for performance optimization and scalability.
+
+**Built as a backend engineering project.**
